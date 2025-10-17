@@ -1,0 +1,23 @@
+{
+  "name": "bluetooth-dht20-dashboard",
+  "version": "1.0.0",
+  "description": "Bluetooth DHT20 sensor dashboard",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.14.2",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "vue": "^3.4.0",
+    "vite": "^5.0.0",
+    "@vitejs/plugin-vue": "^5.0.0"
+  }
+}
