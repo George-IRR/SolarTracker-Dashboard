@@ -1,5 +1,7 @@
 <template>
-  <h1>DHT20 Sensor</h1>
+  <div>
+    <button @click="$emit('back')">← Back</button>
+    <h1>DHT20 Sensor</h1>
 
   <div class="device-section">
     <h2>Device</h2>
@@ -36,10 +38,13 @@
       Last update: {{ timestamp }}
     </div>
   </div>
+</div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, defineEmits } from 'vue'
+
+const emit = defineEmits(['back'])
 
 const ports = ref([])
 const selectedPort = ref('')
