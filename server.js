@@ -149,3 +149,22 @@ app.get('/data', (req, res) => {
     res.json({ success: false, error: 'No hex data provided' });
   }
 });
+
+app.get('/api/send-hex', (req, res) => {
+  const hex = req.query.hex;
+  if (!hex) {
+    res.json({ success: false, error: 'No hex data provided' });
+    return;
+  }
+  if (!port || !port.isOpen) {
+    res.json({ success: false, error: 'Serial port not connected' });
+    return;
+  }
+  try {
+    const buffer = Buffer.from(hex, 'hex');
+    port.write(buffer);
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
