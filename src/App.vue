@@ -17,9 +17,10 @@
       <div class="status">Status: {{ connected ? 'Connected' : 'Not Connected' }}</div>
     </div>
 
-    <div v-if="connected" class="controls">
-      <button @click="currentView = 'sensor'">DHT20 Sensor</button>
-      <button @click="currentView = 'servo'">Servo Control</button>
+    <div class="controls">
+      <button @click="openSensorView" :disabled="!connected">DHT20 Sensor</button>
+      <button @click="openServoView" :disabled="!connected">Servo Control</button>
+      <div v-if="!connected" style="color:#a00; margin-top:6px">Connect a device first to enable controls</div>
     </div>
 
     <SensorView v-if="currentView === 'sensor'" @back="currentView = ''" />
@@ -42,6 +43,7 @@ const refreshPorts = async () => {
   try {
     const response = await fetch('/api/ports')
     ports.value = await response.json()
+    console.log('refreshPorts ->', ports.value)
   } catch (err) {
     console.error('Error loading ports:', err)
   }
@@ -53,16 +55,20 @@ const connectDevice = async () => {
     return
   }
 
+  console.log('connectDevice ->', selectedPort.value)
   try {
     await fetch('/api/connect?port=' + encodeURIComponent(selectedPort.value), { method: 'POST' })
+    console.log('connect request sent')
   } catch (err) {
     console.error('Connection error:', err)
   }
 }
 
 const disconnectDevice = async () => {
+  console.log('disconnectDevice ->')
   try {
     await fetch('/api/disconnect', { method: 'POST' })
+    console.log('disconnect request sent')
   } catch (err) {
     console.error('Disconnect error:', err)
   }
@@ -71,20 +77,27 @@ const disconnectDevice = async () => {
 const connectWebSocket = () => {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const ws = new WebSocket(`${protocol}//localhost:3000`)
-
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    if (data.type === 'status') {
-      connected.value = data.connected
-    }
-  }
-
   ws.onopen = () => {
+    console.log('WebSocket open')
     refreshPorts()
     portInterval = setInterval(refreshPorts, 5000)
   }
 
+  ws.onmessage = (event) => {
+    console.log('WebSocket message:', event.data)
+    const data = JSON.parse(event.data)
+    if (data.type === 'status') {
+      connected.value = data.connected
+      console.log('connected state updated ->', data.connected)
+    }
+  }
+
+  ws.onerror = (err) => {
+    console.error('WebSocket error', err)
+  }
+
   ws.onclose = () => {
+    console.log('WebSocket closed')
     connected.value = false
     clearInterval(portInterval)
     setTimeout(connectWebSocket, 1000)
@@ -93,5 +106,16 @@ const connectWebSocket = () => {
 
 onMounted(() => {
   connectWebSocket()
+  console.log('App mounted')
 })
+
+const openSensorView = () => {
+  console.log('openSensorView clicked, connected=', connected.value)
+  currentView.value = 'sensor'
+}
+
+const openServoView = () => {
+  console.log('openServoView clicked, connected=', connected.value)
+  currentView.value = 'servo'
+}
 </script>

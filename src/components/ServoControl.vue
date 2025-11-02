@@ -13,14 +13,26 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits(['back'])
 const lastCommand = ref('None')
+let packetCounter = 1
 
 const sendCommand = async (command, subCommand = 0, param1 = 0, param2 = 0) => {
-  // 8-byte protocol: [command, subCommand, param1, param2, 0, 0, 0, 0]
-  const buffer = new Uint8Array([command, subCommand, param1, param2, 0, 0, 0, 0])
-  const hex = Array.from(buffer, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase()
-  
+  // Build 8-byte payload: [command, subCommand, param1, param2, 0, 0, 0, 0]
+  const payload = new Uint8Array([command, subCommand, param1, param2, 0, 0, 0, 0])
+  const payloadHex = Array.from(payload, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase()
+
+  // Use the higher-level framed packet type used by your ATmega firmware: CMD_SERVO = 0x11
+  const packetType = 0x11
+  const packetId = packetCounter++ & 0xFF
+
   try {
-    await fetch(`/api/send-hex?hex=${hex}`)
+    console.log('Sending packet to /api/send-packet', { packetType, packetId, payloadHex })
+    const resp = await fetch('/api/send-packet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: packetType, id: packetId, payloadHex })
+    })
+    const j = await resp.json().catch(() => null)
+    console.log('send-packet response', resp.status, j)
     lastCommand.value = getCommandDescription(command, subCommand)
   } catch (err) {
     console.error('Send command error:', err)
@@ -44,8 +56,18 @@ const getCommandDescription = (command, subCommand) => {
   return `Command: 0x${command.toString(16)} Sub: 0x${subCommand.toString(16)}`
 }
 
-const requestSensorData = () => {
-  sendCommand(0x02, 0x01) // Request sensor data
+const requestSensorData = async () => {
+  // Send the exact frame required by the MCU to request DHT readings
+  // Server will send: AA 55 01 10 0A 02 1A 2B 62
+  try {
+    console.log('Requesting DHT via /api/request-dht')
+    const resp = await fetch('/api/request-dht', { method: 'POST' })
+    const j = await resp.json().catch(() => null)
+    console.log('request-dht response', resp.status, j)
+    if (resp.ok) lastCommand.value = 'Request: DHT (0x10 id=0x0A payload=1A2B)'
+  } catch (err) {
+    console.error('Request sensor error:', err)
+  }
 }
 
 const handleKeyDown = (event) => {
