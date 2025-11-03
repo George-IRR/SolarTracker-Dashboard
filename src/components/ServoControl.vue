@@ -2,8 +2,7 @@
   <div>
     <button @click="$emit('back')">← Back</button>
     <h1>Servo Control</h1>
-    <p>Use arrow keys to control the servo, spacebar to stop</p>
-    <button @click="requestSensorData">Request Sensor Data</button>
+  <p>Use arrow keys to control the servo, spacebar to stop</p>
     <div>Last command: {{ lastCommand }}</div>
   </div>
 </template>
@@ -20,8 +19,9 @@ const sendCommand = async (command, subCommand = 0, param1 = 0, param2 = 0) => {
   const payload = new Uint8Array([command, subCommand, param1, param2, 0, 0, 0, 0])
   const payloadHex = Array.from(payload, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase()
 
-  // Use the higher-level framed packet type used by your ATmega firmware: CMD_SERVO = 0x11
-  const packetType = 0x11
+  // Use the higher-level framed packet type used by your ATmega firmware
+  const CMD_SERVO = 0x11
+  const packetType = CMD_SERVO
   const packetId = packetCounter++ & 0xFF
 
   try {
@@ -33,6 +33,9 @@ const sendCommand = async (command, subCommand = 0, param1 = 0, param2 = 0) => {
     })
     const j = await resp.json().catch(() => null)
     console.log('send-packet response', resp.status, j)
+    if (j && typeof j.sentType !== 'undefined' && j.sentType !== packetType) {
+      console.warn('Server reported sentType differs from requested packetType', { requested: packetType, sent: j.sentType })
+    }
     lastCommand.value = getCommandDescription(command, subCommand)
   } catch (err) {
     console.error('Send command error:', err)
@@ -56,19 +59,7 @@ const getCommandDescription = (command, subCommand) => {
   return `Command: 0x${command.toString(16)} Sub: 0x${subCommand.toString(16)}`
 }
 
-const requestSensorData = async () => {
-  // Send the exact frame required by the MCU to request DHT readings
-  // Server will send: AA 55 01 10 0A 02 1A 2B 62
-  try {
-    console.log('Requesting DHT via /api/request-dht')
-    const resp = await fetch('/api/request-dht', { method: 'POST' })
-    const j = await resp.json().catch(() => null)
-    console.log('request-dht response', resp.status, j)
-    if (resp.ok) lastCommand.value = 'Request: DHT (0x10 id=0x0A payload=1A2B)'
-  } catch (err) {
-    console.error('Request sensor error:', err)
-  }
-}
+// Note: manual DHT requests moved to the DHT Sensor view
 
 const handleKeyDown = (event) => {
   switch (event.key) {

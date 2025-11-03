@@ -9,8 +9,9 @@
         <input type="number" v-model="pollIntervalSec" min="1" style="width:60px; margin:0 6px;" />
         seconds
       </label>
-      <button @click="togglePolling">{{ pollEnabled ? 'Stop polling' : 'Start polling' }}</button>
-      <span style="margin-left:12px">Last poll: {{ lastPollDisplay }}</span>
+  <button @click="togglePolling">{{ pollEnabled ? 'Stop polling' : 'Start polling' }}</button>
+  <button style="margin-left:8px" @click="doPollOnce">Request Sensor Data</button>
+  <span style="margin-left:12px">Last poll: {{ lastPollDisplay }}</span>
     </div>
 
     <div class="sensor-data">

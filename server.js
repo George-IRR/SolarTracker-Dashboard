@@ -17,6 +17,12 @@ const RX1_PAYLOAD_MAX = 128;
 const PREAMBLE0 = 0xAA;
 const PREAMBLE1 = 0x55;
 const PROTO_VERSION = 0x01;
+// MCU command / response constants (from ATmega header)
+const CMD_DHT20 = 0x10;
+const CMD_SERVO = 0x11;
+const RESP_DHT20 = 0x21;
+const RESP_SERVO = 0x22;
+const RESP_STATUS = 0x23;
 
 let pstate = 'WAIT_PREAMBLE_1';
 let packet_version = 0;
@@ -125,19 +131,33 @@ app.post('/api/send-packet', (req, res) => {
     res.status(400).json({ success: false, error: 'type and id required' });
     return;
   }
+  const t = Number(type);
+  const i = Number(id);
+  if (!Number.isInteger(t) || !Number.isInteger(i)) {
+    res.status(400).json({ success: false, error: 'type and id must be integers' });
+    return;
+  }
   const payload = payloadHex ? Buffer.from(String(payloadHex), 'hex') : Buffer.alloc(0);
-  const ok = sendPacket(Number(type), Number(id), payload);
-  res.json({ success: !!ok });
+  console.log('API /api/send-packet', { type: t, id: i, payloadHex });
+
+  // sanity check: log if someone tries to send a DHT command where a servo is expected
+  if (t === CMD_DHT20) {
+    console.warn('Warning: sending CMD_DHT20 (0x10) via /api/send-packet');
+  }
+
+  const ok = sendPacket(t, i, payload);
+  res.json({ success: !!ok, sentType: t });
 });
 
 // Convenience endpoint: request DHT20 measurement using a fixed packet
 // Frame example: AA 55 01 10 0A 02 1A 2B 62
 app.post('/api/request-dht', (req, res) => {
-  const type = 0x10; // CMD_DHT20
+  const type = CMD_DHT20;
   const id = 0x0A;   // example id
   const payload = Buffer.from('1A2B', 'hex');
+  console.log('API /api/request-dht -> sending CMD_DHT20 frame')
   const ok = sendPacket(type, id, payload);
-  res.json({ success: !!ok });
+  res.json({ success: !!ok, sentType: type });
 });
 
 function broadcastStatus() {
@@ -242,7 +262,7 @@ function connectToPort(portPath) {
             try { console.log('Received packet type=0x' + packet_type.toString(16) + ' id=0x' + packet_id.toString(16) + ' payload=' + payloadCopy.toString('hex').toUpperCase()) } catch(e){}
             broadcastPacket(packet_version, packet_type, packet_id, payloadCopy);
             // If this is a DHT20 response, decode and send legacy sensor object so frontends that expect humidity/temp update immediately
-            if (packet_type === 0x21) { // RESP_DHT20
+            if (packet_type === RESP_DHT20) { // RESP_DHT20
               try {
                 const parsed = parseData(payloadCopy.toString('hex'));
                 if (parsed) broadcastData(parsed);
