@@ -20,11 +20,13 @@
     <div class="controls">
       <button @click="openSensorView" :disabled="!connected">DHT20 Sensor</button>
       <button @click="openServoView" :disabled="!connected">Servo Control</button>
+      <button @click="openSolarView" :disabled="!connected">Solar Track</button>
       <div v-if="!connected" style="color:#a00; margin-top:6px">Connect a device first to enable controls</div>
     </div>
 
     <SensorView v-if="currentView === 'sensor'" @back="currentView = ''" />
     <ServoControl v-if="currentView === 'servo'" @back="currentView = ''" />
+  <SolarTrack v-if="currentView === 'solar'" @back="currentView = ''" />
   </div>
 </template>
 
@@ -32,6 +34,7 @@
 import { ref, onMounted } from 'vue'
 import SensorView from './components/SensorView.vue'
 import ServoControl from './components/ServoControl.vue'
+import SolarTrack from './components/SolarTrack.vue'
 
 const ports = ref([])
 const selectedPort = ref('')
@@ -117,5 +120,10 @@ const openSensorView = () => {
 const openServoView = () => {
   console.log('openServoView clicked, connected=', connected.value)
   currentView.value = 'servo'
+}
+
+const openSolarView = () => {
+  console.log('openSolarView clicked, connected=', connected.value)
+  currentView.value = 'solar'
 }
 </script>
