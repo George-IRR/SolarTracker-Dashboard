@@ -1,83 +1,142 @@
 <template>
-  <div>
+  <div class="servo-control">
     <button @click="$emit('back')">← Back</button>
+
     <h1>Servo Control</h1>
-  <p>Use arrow keys to control the servo, spacebar to stop</p>
-    <div>Last command: {{ lastCommand }}</div>
+
+    <div style="margin:8px 0;">
+      <button @click="toggleManual">{{ manualActive ? 'Disable Manual' : 'Enable Manual' }}</button>
+      <span style="margin-left:12px">Manual state: <strong>{{ manualActive ? 'ON' : 'OFF' }}</strong></span>
+    </div>
+
+    <p>Use arrow keys to move servos (Left/Right = horizontal, Up/Down = vertical). Space = stop.</p>
+
+    <div style="display:flex; gap:20px; margin-top:12px;">
+      <div>
+        <h3>Vertical (ID {{ servoV }})</h3>
+        <input type="range" :min="minAngle" :max="maxAngle" v-model.number="angles[servoV]" @change="sendAngle(servoV)" />
+        <div>Angle: {{ angles[servoV] }}</div>
+      </div>
+
+      <div>
+        <h3>Horizontal (ID {{ servoH }})</h3>
+        <input type="range" :min="minAngle" :max="maxAngle" v-model.number="angles[servoH]" @change="sendAngle(servoH)" />
+        <div>Angle: {{ angles[servoH] }}</div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div>Last command: {{ lastCommand }}</div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits(['back'])
+
+// Constants from usart_packet.h
+const CMD_SERVO = 0x11
+const CMD_OVERRIDE = 0x12
+const DATA_OVERRIDE_CTRL = 0x43
+const OV_CTRL_SET_ON = 0x01
+const OV_CTRL_SET_OFF = 0x02
+
+const packetCounter = ref(1)
 const lastCommand = ref('None')
-let packetCounter = 1
 
-const sendCommand = async (command, subCommand = 0, param1 = 0, param2 = 0) => {
-  // Build 8-byte payload: [command, subCommand, param1, param2, 0, 0, 0, 0]
-  const payload = new Uint8Array([command, subCommand, param1, param2, 0, 0, 0, 0])
-  const payloadHex = Array.from(payload, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase()
+const servoV = 1   // vertical servo (PH4 / PWM4_B)
+const servoH = 0   // horizontal servo (PH5 / PWM4_C)
+const minAngle = 0
+const maxAngle = 180
+const step = 5
 
-  // Use the higher-level framed packet type used by your ATmega firmware
-  const CMD_SERVO = 0x11
-  const packetType = CMD_SERVO
-  const packetId = packetCounter++ & 0xFF
+const angles = reactive({
+  [servoV]: 150,  // match firmware starting angles
+  [servoH]: 0
+})
 
+const manualActive = ref(false)
+
+async function sendPacketToBridge(type, id, payloadBytes) {
+  const payloadHex = Array.from(payloadBytes, b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
+  const resp = await fetch('/api/send-packet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, id, payloadHex })
+  })
+  let j = null
+  try { j = await resp.json() } catch(e) { /* ignore */ }
+  return { resp, json: j }
+}
+
+async function sendOverride(on) {
+  const ctrl = on ? OV_CTRL_SET_ON : OV_CTRL_SET_OFF
+  const payload = new Uint8Array([DATA_OVERRIDE_CTRL, ctrl, 0, 0, 0, 0, 0, 0])
+  const id = packetCounter.value++ & 0xFF
   try {
-    console.log('Sending packet to /api/send-packet', { packetType, packetId, payloadHex })
-    const resp = await fetch('/api/send-packet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: packetType, id: packetId, payloadHex })
-    })
-    const j = await resp.json().catch(() => null)
-    console.log('send-packet response', resp.status, j)
-    if (j && typeof j.sentType !== 'undefined' && j.sentType !== packetType) {
-      console.warn('Server reported sentType differs from requested packetType', { requested: packetType, sent: j.sentType })
-    }
-    lastCommand.value = getCommandDescription(command, subCommand)
+    const r = await sendPacketToBridge(CMD_OVERRIDE, id, payload)
+    manualActive.value = on
+    lastCommand.value = on ? 'Override: ON' : 'Override: OFF'
+    return r
   } catch (err) {
-    console.error('Send command error:', err)
+    console.error('Override send error', err)
+    return null
   }
 }
 
-const getCommandDescription = (command, subCommand) => {
-  if (command === 0x01) { // Servo commands
-    switch (subCommand) {
-      case 0x01: return 'Servo: Move Up'
-      case 0x02: return 'Servo: Move Down'
-      case 0x03: return 'Servo: Move Left'
-      case 0x04: return 'Servo: Move Right'
-      case 0x05: return 'Servo: Stop'
-    }
-  } else if (command === 0x02) { // Request commands
-    switch (subCommand) {
-      case 0x01: return 'Request: Sensor Data'
-    }
+async function sendServoAngle(servoId, angle) {
+  if (!manualActive.value) {
+    lastCommand.value = 'Manual not active — enable override first'
+    return
   }
-  return `Command: 0x${command.toString(16)} Sub: 0x${subCommand.toString(16)}`
+  const a = Math.max(minAngle, Math.min(maxAngle, Math.round(angle)))
+  const hi = (a >> 8) & 0xFF
+  const lo = a & 0xFF
+  const payload = new Uint8Array([servoId & 0xFF, hi, lo, 0, 0, 0, 0, 0])
+  const id = packetCounter.value++ & 0xFF
+  try {
+    await sendPacketToBridge(CMD_SERVO, id, payload)
+    lastCommand.value = `Servo ${servoId} -> ${a}°`
+  } catch (err) {
+    console.error('Servo send error', err)
+  }
 }
 
-// Note: manual DHT requests moved to the DHT Sensor view
+function sendAngle(servoId) {
+  sendServoAngle(servoId, angles[servoId])
+}
 
-const handleKeyDown = (event) => {
-  switch (event.key) {
+function toggleManual() {
+  sendOverride(!manualActive.value)
+}
+
+function handleKeyDown(e) {
+  if (!manualActive.value) return
+
+  switch (e.key) {
     case 'ArrowUp':
-      sendCommand(0x01, 0x01) // Servo up
+      angles[servoV] = Math.max(minAngle, angles[servoV] - step)
+      sendServoAngle(servoV, angles[servoV])
       break
     case 'ArrowDown':
-      sendCommand(0x01, 0x02) // Servo down
+      angles[servoV] = Math.min(maxAngle, angles[servoV] + step)
+      sendServoAngle(servoV, angles[servoV])
       break
     case 'ArrowLeft':
-      sendCommand(0x01, 0x03) // Servo left
+      angles[servoH] = Math.max(minAngle, angles[servoH] - step)
+      sendServoAngle(servoH, angles[servoH])
       break
     case 'ArrowRight':
-      sendCommand(0x01, 0x04) // Servo right
+      angles[servoH] = Math.min(maxAngle, angles[servoH] + step)
+      sendServoAngle(servoH, angles[servoH])
       break
-    case ' ': // Spacebar for stop
-      sendCommand(0x01, 0x05) // Servo stop
-      event.preventDefault()
+    case ' ':
+      sendServoAngle(servoV, angles[servoV])
+      sendServoAngle(servoH, angles[servoH])
+      e.preventDefault()
+      lastCommand.value = 'Stop (hold position)'
       break
   }
 }
@@ -90,3 +149,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
 })
 </script>
+
+<style scoped>
+.servo-control { padding: 12px; max-width: 720px; }
+</style>
